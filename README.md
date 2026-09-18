@@ -258,8 +258,8 @@ build, publish, and cleanup logic.
 Available Make targets are:
 
 ```text
-make                Build a publishable release image
-make release-image  Build a publishable release image explicitly
+make                 Build a publishable release image
+make release-image   Build a publishable release image explicitly
 make dev             Build a local development image
 make dev-image       Build a local development image explicitly
 make publish         Publish the most recent release image
