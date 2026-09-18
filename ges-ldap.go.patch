@@ -1,0 +1,196 @@
+diff --git a/connector/ldap/ldap.go b/connector/ldap/ldap.go
+index 27f93e33..d6541280 100644
+--- a/connector/ldap/ldap.go
++++ b/connector/ldap/ldap.go
+@@ -5,6 +5,9 @@ import (
+ 	"context"
+ 	"crypto/tls"
+ 	"crypto/x509"
++	// ===== GES PATCH START: Active Directory binary identifier support =====
++	"encoding/binary"
++	// ===== GES PATCH END: Active Directory binary identifier support =====
+ 	"encoding/json"
+ 	"fmt"
+ 	"log/slog"
+@@ -81,6 +84,30 @@ func (u *UsernameAttributes) UnmarshalJSON(data []byte) error {
+ 	return nil
+ }
+ 
++// IdAttributes represents one or more LDAP attributes that can provide the
++// user's stable ID. It supports unmarshaling from both a single string
++// (e.g. "uid") and a list of strings (e.g. ["objectGUID", "mS-DS-ConsistencyGuid"]).
++// ===== GES PATCH START: Multi-value idAttr configuration =====
++type IdAttributes []string
++
++func (i *IdAttributes) UnmarshalJSON(data []byte) error {
++	var arr []string
++	if err := json.Unmarshal(data, &arr); err == nil {
++		*i = arr
++		return nil
++	}
++	var s string
++	if err := json.Unmarshal(data, &s); err != nil {
++		return fmt.Errorf("idAttr must be a string or list of strings")
++	}
++	if s != "" {
++		*i = IdAttributes{s}
++	}
++	return nil
++}
++
++// ===== GES PATCH END: Multi-value idAttr configuration =====
++
+ // UserMatcher holds information about user and group matching.
+ type UserMatcher struct {
+ 	UserAttr  string `json:"userAttr"`
+@@ -147,7 +174,10 @@ type Config struct {
+ 		Scope string `json:"scope"`
+ 
+ 		// A mapping of attributes on the user entry to claims.
+-		IDAttr                    string `json:"idAttr"`                // Defaults to "uid"
++		// ===== GES PATCH START: Multi-value idAttr + preferredIdAttr =====
++		IDAttr                    IdAttributes `json:"idAttr"`          // Defaults to "uid"
++		PreferredIDAttr           string       `json:"preferredIdAttr"` // No default.
++		// ===== GES PATCH END: Multi-value idAttr + preferredIdAttr =====
+ 		EmailAttr                 string `json:"emailAttr"`             // Defaults to "mail"
+ 		NameAttr                  string `json:"nameAttr"`              // No default.
+ 		PreferredUsernameAttrAttr string `json:"preferredUsernameAttr"` // No default.
+@@ -326,6 +356,21 @@ func (c *Config) openConnector(logger *slog.Logger) (*ldapConnector, error) {
+ 		return nil, fmt.Errorf("ldap: missing required field %q", "userSearch.username")
+ 	}
+ 
++	// ===== GES PATCH START: preferredIdAttr validation =====
++	if c.UserSearch.PreferredIDAttr != "" {
++		found := false
++		for _, attr := range c.UserSearch.IDAttr {
++			if strings.EqualFold(attr, c.UserSearch.PreferredIDAttr) {
++				found = true
++				break
++			}
++		}
++		if !found {
++			return nil, fmt.Errorf("ldap: userSearch.preferredIdAttr %q must be included in userSearch.idAttr", c.UserSearch.PreferredIDAttr)
++		}
++	}
++	// ===== GES PATCH END: preferredIdAttr validation =====
++
+ 	var (
+ 		host string
+ 		err  error
+@@ -491,22 +536,98 @@ func (c *ldapConnector) getAttrs(e ldap.Entry, name string) []string {
+ 	return nil
+ }
+ 
++// ===== GES PATCH START: AD binary conversion + ID selection =====
+ func (c *ldapConnector) getAttr(e ldap.Entry, name string) string {
++	switch {
++	case strings.EqualFold(name, "objectGUID"), strings.EqualFold(name, "mS-DS-ConsistencyGuid"):
++		var raw []byte
++		for _, attr := range e.Attributes {
++			if strings.EqualFold(attr.Name, name) && len(attr.ByteValues) > 0 {
++				raw = attr.ByteValues[0]
++				break
++			}
++		}
++		if len(raw) != 16 {
++			return ""
++		}
++		return fmt.Sprintf(
++			"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
++			raw[3], raw[2], raw[1], raw[0],
++			raw[5], raw[4],
++			raw[7], raw[6],
++			raw[8], raw[9],
++			raw[10], raw[11], raw[12], raw[13], raw[14], raw[15],
++		)
++
++	case strings.EqualFold(name, "objectSID"):
++		var raw []byte
++		for _, attr := range e.Attributes {
++			if strings.EqualFold(attr.Name, name) && len(attr.ByteValues) > 0 {
++				raw = attr.ByteValues[0]
++				break
++			}
++		}
++		if len(raw) < 8 {
++			return ""
++		}
++
++		subAuthorityCount := int(raw[1])
++		if len(raw) < 8+(subAuthorityCount*4) {
++			return ""
++		}
++
++		var identifierAuthority uint64
++		for _, b := range raw[2:8] {
++			identifierAuthority = (identifierAuthority << 8) | uint64(b)
++		}
++
++		sid := fmt.Sprintf("S-%d-%d", raw[0], identifierAuthority)
++		for i := 0; i < subAuthorityCount; i++ {
++			offset := 8 + (i * 4)
++			subAuthority := binary.LittleEndian.Uint32(raw[offset : offset+4])
++			sid += fmt.Sprintf("-%d", subAuthority)
++		}
++		return sid
++	}
++
+ 	if a := c.getAttrs(e, name); len(a) > 0 {
+ 		return a[0]
+ 	}
+ 	return ""
+ }
+ 
++func (c *ldapConnector) getUserID(e ldap.Entry) string {
++	if c.UserSearch.PreferredIDAttr != "" {
++		if id := c.getAttr(e, c.UserSearch.PreferredIDAttr); id != "" {
++			return id
++		}
++	}
++
++	for _, attr := range c.UserSearch.IDAttr {
++		if c.UserSearch.PreferredIDAttr != "" && strings.EqualFold(attr, c.UserSearch.PreferredIDAttr) {
++			continue
++		}
++		if id := c.getAttr(e, attr); id != "" {
++			return id
++		}
++	}
++
++	return ""
++}
++
++// ===== GES PATCH END: AD binary conversion + ID selection =====
++
+ func (c *ldapConnector) identityFromEntry(user ldap.Entry) (ident connector.Identity, err error) {
+ 	// If we're missing any attributes, such as email or ID, we want to report
+ 	// an error rather than continuing.
+ 	missing := []string{}
+ 
+ 	// Fill the identity struct using the attributes from the user entry.
+-	if ident.UserID = c.getAttr(user, c.UserSearch.IDAttr); ident.UserID == "" {
+-		missing = append(missing, c.UserSearch.IDAttr)
++	// ===== GES PATCH START: Multi-value UserID resolution =====
++	if ident.UserID = c.getUserID(user); ident.UserID == "" {
++		missing = append(missing, strings.Join(c.UserSearch.IDAttr, ", "))
+ 	}
++	// ===== GES PATCH END: Multi-value UserID resolution =====
+ 
+ 	if c.UserSearch.NameAttr != "" {
+ 		if ident.Username = c.getAttr(user, c.UserSearch.NameAttr); ident.Username == "" {
+@@ -560,12 +681,14 @@ func (c *ldapConnector) userEntry(conn *ldap.Conn, username string) (user ldap.E
+ 		Scope:  c.userSearchScope,
+ 		// We only need to search for these specific requests.
+ 		Attributes: []string{
+-			c.UserSearch.IDAttr,
+ 			c.UserSearch.EmailAttr,
+ 			// TODO(ericchiang): what if this contains duplicate values?
+ 		},
+ 	}
+ 
++	// ===== GES PATCH START: Request all configured idAttr values =====
++	req.Attributes = append(req.Attributes, c.UserSearch.IDAttr...)
++	// ===== GES PATCH END: Request all configured idAttr values =====
+ 	req.Attributes = append(req.Attributes, c.usernameAttrs...)
+ 
+ 	for _, matcher := range c.GroupSearch.UserMatchers {

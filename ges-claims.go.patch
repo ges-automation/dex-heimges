@@ -1,0 +1,28 @@
+diff --git a/server/tokens/claims.go b/server/tokens/claims.go
+index 508cb6f6..b08c0bc3 100644
+--- a/server/tokens/claims.go
++++ b/server/tokens/claims.go
+@@ -9,6 +9,10 @@ import (
+ 	"hash"
+ 	"io"
+ 
++	// ===== GES PATCH START: Normalize HEIMGES connector IDs for stable OIDC subjects =====
++	"strings"
++	// ===== GES PATCH END: Normalize HEIMGES connector IDs for stable OIDC subjects =====
++
+ 	jose "github.com/go-jose/go-jose/v4"
+ 
+ 	"github.com/dexidp/dex/server/internal"
+@@ -137,6 +141,12 @@ func GetAudience(clientID string, scopes []string) Audience {
+ 
+ // GenSubject encodes a (userID, connectorID) pair into an ID token subject.
+ func GenSubject(userID string, connID string) (string, error) {
++	// ===== GES PATCH START: Normalize HEIMGES connector IDs for stable OIDC subjects =====
++	if strings.HasPrefix(connID, "heimges-") {
++		connID = "heimges"
++	}
++	// ===== GES PATCH END: Normalize HEIMGES connector IDs for stable OIDC subjects =====
++
+ 	sub := &internal.IDTokenSubject{
+ 		UserId: userID,
+ 		ConnId: connID,
