@@ -44,18 +44,162 @@ patches/
 
 ### Connector ID normalization
 
-Normalizes HEIMGES Dex connector IDs when generating OIDC subjects so that
-multiple authentication paths for the same user can produce a stable subject.
+Dex normally incorporates the connector ID into the generated OIDC subject.
+That means the same upstream user authenticated through two different Dex
+connectors would normally receive different OIDC `sub` values.
+
+This patch normalizes any connector ID beginning with:
+
+```text
+heimges-
+```
+
+to the internal connector ID:
+
+```text
+heimges
+```
+
+when Dex generates the OIDC subject.
+
+For example, these two connectors:
+
+```yaml
+connectors:
+  - type: ldap
+    id: heimges-ldap
+    name: Password
+
+  - type: authproxy
+    id: heimges-windows
+    name: Windows
+```
+
+are both treated internally as:
+
+```text
+heimges
+```
+
+for subject generation.
+
+This allows the same upstream user ID to produce the same stable OIDC subject
+regardless of whether the user authenticated through the LDAP/password path or
+the Windows/authproxy path.
+
+Only the subject-generation behavior is normalized. The configured connector
+IDs remain distinct everywhere else in Dex.
 
 ### Active Directory LDAP identifiers
 
-Extends the Dex LDAP connector with support for:
+The LDAP patch extends Dex's `userSearch.idAttr` handling for Active Directory.
 
-- Multiple `idAttr` values
-- A preferred ID attribute
-- Active Directory `objectGUID`
-- Active Directory `mS-DS-ConsistencyGuid`
-- Active Directory `objectSID`
+#### Multiple `idAttr` values
+
+Upstream Dex expects a single `idAttr` value. This patch allows `idAttr` to be
+either a single value or a list of values.
+
+Example:
+
+```yaml
+userSearch:
+  idAttr:
+    - ms-DS-ConsistencyGuid
+    - objectGUID
+```
+
+Dex evaluates the configured attributes in order and uses the first available
+value.
+
+#### `preferredIdAttr`
+
+The patch also adds a new optional `preferredIdAttr` setting.
+
+Example:
+
+```yaml
+userSearch:
+  idAttr:
+    - ms-DS-ConsistencyGuid
+    - objectGUID
+
+  preferredIdAttr: ms-DS-ConsistencyGuid
+```
+
+`preferredIdAttr` must also appear in `idAttr`.
+
+When configured, Dex checks the preferred attribute first. If it is present
+and has a usable value, that value is used as the user's stable ID. If it is
+not available, Dex falls back through the remaining configured `idAttr`
+values.
+
+This allows HEIMGES to prefer `ms-DS-ConsistencyGuid` while falling back to
+`objectGUID`.
+
+A representative LDAP connector configuration is:
+
+```yaml
+connectors:
+  - type: ldap
+    id: heimges-ldap
+    name: Password
+
+    config:
+      host: heimges.local:636
+
+      userSearch:
+        baseDN: DC=heimges,DC=local
+        filter: "(&(objectClass=user)(!(objectClass=computer)))"
+
+        username:
+          - sAMAccountName
+          - userPrincipalName
+          - mail
+
+        idAttr:
+          - ms-DS-ConsistencyGuid
+          - objectGUID
+
+        preferredIdAttr: ms-DS-ConsistencyGuid
+
+        emailAttr: mail
+        nameAttr: displayName
+        preferredUsernameAttr: sAMAccountName
+```
+
+The patch also adds Active Directory-aware binary conversion support for:
+
+```text
+objectGUID
+ms-DS-ConsistencyGuid
+objectSID
+```
+
+This allows those binary LDAP attributes to be converted into stable,
+human-readable string values suitable for use as Dex user IDs and OIDC subject
+inputs.
+
+For example, the resulting stable user ID can be supplied through the
+authproxy connector as well:
+
+```yaml
+connectors:
+  - type: authproxy
+    id: heimges-windows
+    name: Windows
+
+    config:
+      userHeader: X-Remote-User
+      userIDHeader: X-Remote-User-Id
+      userNameHeader: X-Remote-User-Name
+      emailHeader: X-Remote-User-Email
+      groupHeader: X-Remote-Group
+      groupHeaderSeparator: ";"
+```
+
+If the LDAP connector resolves the same stable user ID that the authproxy
+supplies in `X-Remote-User-Id`, and both connector IDs begin with `heimges-`,
+both authentication paths generate the same OIDC subject.
 
 ## Image Versioning
 
