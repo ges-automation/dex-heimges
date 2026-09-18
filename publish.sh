@@ -5,7 +5,7 @@ set -eu
 # Script:       publish.sh
 # Author:       Andrew J. Moore
 # Date:         2026-09-18
-# Revision:     r2
+# Revision:     r3
 #
 # Description:
 #   Publishes the most recently built dex-heimges container image to the
@@ -14,6 +14,9 @@ set -eu
 #   The image to publish is read from .build-image, which is generated only
 #   by a successful release build. Images outside the expected dex-heimges
 #   GHCR namespace are explicitly rejected.
+#
+#   After the versioned image is pushed successfully, the same image is also
+#   tagged and pushed as :latest so deployments can track the current release.
 #
 #   GHCR credentials are retrieved from 1Password using the 1Password CLI.
 #   Docker authentication is performed using a temporary DOCKER_CONFIG
@@ -47,6 +50,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 IMAGE_FILE="$SCRIPT_DIR/.build-image"
 PROFILE_FILE="$HOME/.profile"
 EXPECTED_IMAGE_PREFIX="ghcr.io/gesandrewmoore/dex-heimges:"
+LATEST_IMAGE="ghcr.io/gesandrewmoore/dex-heimges:latest"
 
 # -----------------------------------------------------------------------------
 # Prerequisite checks
@@ -212,5 +216,14 @@ echo
 docker push "$IMAGE"
 
 echo
+echo "Tagging latest:"
+echo "  $LATEST_IMAGE"
+
+echo
+docker tag "$IMAGE" "$LATEST_IMAGE"
+docker push "$LATEST_IMAGE"
+
+echo
 echo "Published successfully:"
 echo "  $IMAGE"
+echo "  $LATEST_IMAGE"
