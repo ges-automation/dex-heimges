@@ -5,37 +5,51 @@ set -eu
 # Script:       build.sh
 # Author:       Andrew J. Moore
 # Date:         2026-09-18
-# Revision:     r1
+# Revision:     r2
 #
 # Description:
 #   Builds the custom dex-heimges container image from an exact pinned
 #   upstream Dex commit.
 #
-#   The script:
-#     - Requires a clean dex-heimges Git working tree.
-#     - Determines the current dex-heimges repository commit.
-#     - Fetches the configured upstream Dex commit.
-#     - Validates and applies all *.patch files in the patches directory.
-#     - Builds the resulting Docker image.
-#     - Adds OCI metadata describing the build source.
-#     - Records the exact locally-built image name in .build-image for use
-#       by publish.sh.
+#   By default, the script creates a release build suitable for publication.
+#   Release builds require a clean repository whose HEAD exactly matches the
+#   latest origin/main revision.
 #
-# Image tag format:
-#   YYYYMMDDHHMM-dex_<upstream-sha>-patch_<repository-sha>
+#   Passing --dev creates a local development image from the current working
+#   tree. Development builds may contain uncommitted or untracked changes,
+#   are intentionally kept outside the GHCR namespace, and are never recorded
+#   as publishable images.
+#
+# Build modes:
+#   ./build.sh
+#       Release build.
+#
+#   ./build.sh --dev
+#       Development build using the current local working tree.
+#
+# Release image tag format:
+#   ghcr.io/gesandrewmoore/dex-heimges:
+#     YYYYMMDDHHMM-dex_<upstream-sha>-patch_<repository-sha>
+#
+# Development image tag format:
+#   dex-heimges:dev-YYYYMMDDHHMM-dex_<upstream-sha>
 #
 # Prerequisites:
 #   - Git
 #   - Docker Engine / Docker CLI
-#   - A clean checkout of this repository
 #   - One or more *.patch files in ./patches
 #
-# Output:
-#   Local Docker image:
-#     ghcr.io/gesandrewmoore/dex-heimges:<generated-tag>
+# Release build requirements:
+#   - Clean Git working tree
+#   - Local HEAD exactly matches origin/main
 #
-#   Image reference file:
-#     .build-image
+# Output:
+#   Release builds create a GHCR-namespaced local image and record its exact
+#   image name in .build-image for use by publish.sh.
+#
+#   Development builds create only a local dex-heimges:dev-* image and remove
+#   any existing .build-image so a development workflow cannot leave a stale
+#   image reference available for publishing.
 #
 # Notes:
 #   Patch files are validated and applied in shell glob order, which normally
@@ -50,7 +64,40 @@ set -eu
 # Exact upstream Dex commit to build.
 DEX_COMMIT="7ace0e79cc6cfd2ed9373a2daa50cfb683e2e390"
 
-IMAGE_REPO="ghcr.io/gesandrewmoore/dex-heimges"
+RELEASE_IMAGE_REPO="ghcr.io/gesandrewmoore/dex-heimges"
+DEV_IMAGE_REPO="dex-heimges"
+
+# -----------------------------------------------------------------------------
+# Command-line arguments
+# -----------------------------------------------------------------------------
+
+BUILD_MODE="release"
+
+case "${1:-}" in
+    "")
+        ;;
+    --dev)
+        BUILD_MODE="dev"
+        ;;
+    -h|--help)
+        echo "Usage: $0 [--dev]"
+        echo
+        echo "  no option   Build a publishable release image."
+        echo "  --dev       Build a local development image from the current working tree."
+        exit 0
+        ;;
+    *)
+        echo "Error: unknown option: $1"
+        echo "Usage: $0 [--dev]"
+        exit 1
+        ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+    echo "Error: too many arguments."
+    echo "Usage: $0 [--dev]"
+    exit 1
+fi
 
 # -----------------------------------------------------------------------------
 # Paths and build metadata
@@ -64,8 +111,16 @@ DEX_SHORT="$(printf '%s' "$DEX_COMMIT" | cut -c1-7)"
 REPO_SHORT="$(git -C "$SCRIPT_DIR" rev-parse --short=7 HEAD)"
 BUILD_TIME="$(date -u +%Y%m%d%H%M)"
 
-IMAGE_TAG="${BUILD_TIME}-dex_${DEX_SHORT}-patch_${REPO_SHORT}"
-IMAGE="${IMAGE_REPO}:${IMAGE_TAG}"
+case "$BUILD_MODE" in
+    release)
+        IMAGE_TAG="${BUILD_TIME}-dex_${DEX_SHORT}-patch_${REPO_SHORT}"
+        IMAGE="${RELEASE_IMAGE_REPO}:${IMAGE_TAG}"
+        ;;
+    dev)
+        IMAGE_TAG="dev-${BUILD_TIME}-dex_${DEX_SHORT}"
+        IMAGE="${DEV_IMAGE_REPO}:${IMAGE_TAG}"
+        ;;
+esac
 
 BUILD_DIR="$(mktemp -d)"
 
@@ -76,7 +131,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # -----------------------------------------------------------------------------
-# Prerequisite and source checks
+# Prerequisite checks
 # -----------------------------------------------------------------------------
 
 if ! command -v git >/dev/null 2>&1; then
@@ -86,16 +141,6 @@ fi
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "Error: Docker is not installed."
-    exit 1
-fi
-
-# Ensure all source used by the build is represented by the repository SHA.
-if [ -n "$(git -C "$SCRIPT_DIR" status --porcelain)" ]; then
-    echo "Error: repository has uncommitted or untracked changes."
-    echo
-    git -C "$SCRIPT_DIR" status --short
-    echo
-    echo "Commit or stash your changes before building."
     exit 1
 fi
 
@@ -122,15 +167,59 @@ if [ "$PATCH_FOUND" -eq 0 ]; then
 fi
 
 # -----------------------------------------------------------------------------
+# Release source validation
+# -----------------------------------------------------------------------------
+
+if [ "$BUILD_MODE" = "release" ]; then
+    # Ensure all source used by the build is represented by the repository SHA.
+    if [ -n "$(git -C "$SCRIPT_DIR" status --porcelain)" ]; then
+        echo "Error: repository has uncommitted or untracked changes."
+        echo
+        git -C "$SCRIPT_DIR" status --short
+        echo
+        echo "Commit or stash your changes before creating a release build."
+        echo "Use ./build.sh --dev for a local development build."
+        exit 1
+    fi
+
+    echo "Checking origin/main..."
+    git -C "$SCRIPT_DIR" fetch --quiet origin main
+
+    LOCAL_HEAD="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
+    REMOTE_HEAD="$(git -C "$SCRIPT_DIR" rev-parse origin/main)"
+
+    if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
+        echo "Error: local repository does not match origin/main."
+        echo
+        echo "Local HEAD:  $(git -C "$SCRIPT_DIR" rev-parse --short=7 HEAD)"
+        echo "origin/main: $(git -C "$SCRIPT_DIR" rev-parse --short=7 origin/main)"
+        echo
+        echo "Run 'git pull --ff-only' before creating a release build."
+        echo "Use ./build.sh --dev for a local development build."
+        exit 1
+    fi
+else
+    # A development build must never leave a publishable image pointer behind.
+    rm -f "$IMAGE_FILE"
+fi
+
+# -----------------------------------------------------------------------------
 # Build summary
 # -----------------------------------------------------------------------------
 
-echo "Build repo SHA: ${REPO_SHORT}"
+echo "Build mode:      ${BUILD_MODE}"
+echo "Build repo SHA:  ${REPO_SHORT}"
 echo "Dex commit SHA:  ${DEX_SHORT}"
 echo "Build time UTC:  ${BUILD_TIME}"
 echo "Image tag:       ${IMAGE}"
 echo "Patch directory: ${PATCH_DIR}"
 echo
+
+if [ "$BUILD_MODE" = "dev" ]; then
+    echo "Development build: uncommitted and untracked repository changes are allowed."
+    echo "This image is local-only and cannot be published by publish.sh."
+    echo
+fi
 
 # -----------------------------------------------------------------------------
 # Fetch upstream Dex source
@@ -189,6 +278,7 @@ docker build \
     --label org.opencontainers.image.version="${IMAGE_TAG}" \
     --label org.opencontainers.image.revision="${REPO_SHORT}" \
     --label io.ges.dex.upstream-revision="${DEX_COMMIT}" \
+    --label io.ges.build-mode="${BUILD_MODE}" \
     --tag "$IMAGE" \
     .
 
@@ -196,15 +286,22 @@ docker build \
 # Record and report build output
 # -----------------------------------------------------------------------------
 
-# Record the exact image produced by this build for publish.sh.
-printf '%s\n' "$IMAGE" > "$IMAGE_FILE"
+if [ "$BUILD_MODE" = "release" ]; then
+    # Record the exact image produced by this build for publish.sh.
+    printf '%s\n' "$IMAGE" > "$IMAGE_FILE"
+fi
 
 echo
 echo "Built image:"
 docker image inspect "$IMAGE" \
     --format '{{.RepoTags}} {{.Id}}'
 
-echo
-echo "Recorded image:"
-echo "  $IMAGE_FILE"
-echo "  $IMAGE"
+if [ "$BUILD_MODE" = "release" ]; then
+    echo
+    echo "Recorded publishable image:"
+    echo "  $IMAGE_FILE"
+    echo "  $IMAGE"
+else
+    echo
+    echo "Development image only; .build-image was not created."
+fi

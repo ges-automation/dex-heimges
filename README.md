@@ -20,6 +20,7 @@ dex-heimges/
 ├── LICENSE
 ├── README.md
 ├── build.sh
+├── build-dev.sh
 ├── publish.sh
 └── patches/
     ├── ges-claims.go.patch
@@ -203,16 +204,18 @@ both authentication paths generate the same OIDC subject.
 
 ## Image Versioning
 
-Images use the following tag format:
+### Release images
+
+Publishable release images use the GHCR namespace and the following tag format:
 
 ```text
-YYYYMMDDHHMM-dex_<upstream-sha>-patch_<repository-sha>
+ghcr.io/gesandrewmoore/dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-patch_<repository-sha>
 ```
 
 For example:
 
 ```text
-202609181015-dex_7ace0e7-patch_f781d43
+ghcr.io/gesandrewmoore/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
 ```
 
 The components are:
@@ -223,42 +226,50 @@ The components are:
 
 The repository SHA identifies the exact version of the patch files, build
 script, publish script, documentation, and other repository contents used for
-the build.
+the release build.
+
+### Development images
+
+Development builds intentionally omit both the GHCR namespace and repository
+SHA. They use the local-only format:
+
+```text
+dex-heimges:dev-YYYYMMDDHHMM-dex_<upstream-sha>
+```
+
+For example:
+
+```text
+dex-heimges:dev-202609181015-dex_7ace0e7
+```
+
+This makes development images visually distinct from publishable release
+images and prevents them from being accepted by `publish.sh`.
 
 ## Building
 
-Builds should be performed from a clean checkout of this repository.
+`build.sh` supports two build modes: release and development.
 
-Update the local checkout:
+### Release builds
 
-```sh
-git pull --ff-only
-```
-
-Verify that the working tree is clean:
-
-```sh
-git status
-```
-
-Build the image:
+A normal invocation creates a publishable release image:
 
 ```sh
 ./build.sh
 ```
 
-The build script:
+Release builds are intentionally strict. Before building, the script:
 
 1. Verifies that Git and Docker are available.
 2. Requires a clean Git working tree with no uncommitted or untracked files.
-3. Determines the current UTC build timestamp.
-4. Determines the current `dex-heimges` repository commit.
-5. Fetches the exact configured upstream Dex commit.
-6. Discovers all `*.patch` files in `patches/`.
-7. Verifies that every patch applies cleanly.
-8. Applies all patches in lexical filename order.
-9. Builds the resulting Docker image.
-10. Tags the image using the versioning convention documented above.
+3. Fetches the latest `origin/main`.
+4. Requires local `HEAD` to exactly match `origin/main`.
+5. Determines the current UTC build timestamp and repository commit.
+6. Fetches the exact configured upstream Dex commit.
+7. Discovers all `*.patch` files in `patches/`.
+8. Verifies that every patch applies cleanly.
+9. Applies all patches in lexical filename order.
+10. Builds the resulting Docker image in the GHCR release namespace.
 11. Records the exact image name in `.build-image` for use by `publish.sh`.
 
 The completed image will be named similar to:
@@ -267,7 +278,52 @@ The completed image will be named similar to:
 ghcr.io/gesandrewmoore/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
 ```
 
+If the local checkout is behind, ahead of, or otherwise different from
+`origin/main`, the release build is refused. Update the checkout with:
+
+```sh
+git pull --ff-only
+```
+
 The `.build-image` file is local build state and is excluded from Git.
+
+### Development builds
+
+Use development mode when creating or modifying patches that have not yet been
+committed and pushed:
+
+```sh
+./build.sh --dev
+```
+
+For convenience, the repository also includes a wrapper:
+
+```sh
+./build-dev.sh
+```
+
+Both commands perform the same development build.
+
+Development mode:
+
+- Allows uncommitted and untracked repository changes.
+- Does not require the checkout to match `origin/main`.
+- Uses the current files in `patches/`, including newly-created untracked patch files.
+- Builds into the local `dex-heimges` namespace instead of `ghcr.io`.
+- Omits the repository SHA from the image tag.
+- Does not create `.build-image`.
+- Removes any existing `.build-image` so a stale release image cannot be
+  published after a development build.
+
+A development image will be named similar to:
+
+```text
+dex-heimges:dev-202609181015-dex_7ace0e7
+```
+
+This mode is intended for iterating on patches directly on a Docker host,
+running the resulting image locally, and validating changes before committing
+them.
 
 ## Publishing to GitHub Container Registry
 
@@ -281,14 +337,19 @@ Run:
 
 The publish script:
 
-1. Reads the image name recorded by the most recent successful `build.sh` run.
-2. Verifies that the image exists locally.
-3. Reads the GHCR username and personal access token from 1Password.
-4. Reuses an existing 1Password CLI session if one is already active.
-5. Otherwise performs an interactive 1Password sign-in for the duration of the script.
-6. Authenticates Docker to `ghcr.io` using a temporary Docker configuration.
-7. Pushes the recorded image to GitHub Container Registry.
-8. Deletes the temporary Docker authentication state when the script exits.
+1. Reads the image name recorded by the most recent successful release build.
+2. Refuses images outside `ghcr.io/gesandrewmoore/dex-heimges`.
+3. Verifies that the image exists locally.
+4. Reads the GHCR username and personal access token from 1Password.
+5. Reuses an existing 1Password CLI session if one is already active.
+6. Otherwise performs an interactive 1Password sign-in for the duration of the script.
+7. Authenticates Docker to `ghcr.io` using a temporary Docker configuration.
+8. Pushes the recorded image to GitHub Container Registry.
+9. Deletes the temporary Docker authentication state when the script exits.
+
+Development builds cannot be published through this workflow: they do not
+write `.build-image`, and the explicit GHCR namespace check provides an
+additional safeguard against publishing a local development image.
 
 ### 1Password Configuration
 
@@ -433,7 +494,19 @@ patches/
 
 No changes to `build.sh` are required for additional `*.patch` files.
 
-Before building:
+While developing a patch, build and test the current working tree with:
+
+```sh
+./build-dev.sh
+```
+
+or:
+
+```sh
+./build.sh --dev
+```
+
+After the patch has been validated, commit and push it:
 
 ```sh
 git add patches/
@@ -441,8 +514,15 @@ git commit -m "Update Dex patches"
 git push
 ```
 
-The clean-tree requirement ensures that the repository SHA embedded in the
-image tag represents all patch files used by the build.
+Then create the publishable release build:
+
+```sh
+./build.sh
+```
+
+The release build's clean-tree and `origin/main` checks ensure that the
+repository SHA embedded in the image tag represents the exact published source
+used for the build.
 
 ## License
 
