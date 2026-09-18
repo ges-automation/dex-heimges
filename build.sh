@@ -5,7 +5,7 @@ set -eu
 # Script:       build.sh
 # Author:       Andrew J. Moore
 # Date:         2026-09-18
-# Revision:     r2
+# Revision:     r4
 #
 # Description:
 #   Builds the custom dex-heimges container image from an exact pinned
@@ -29,10 +29,10 @@ set -eu
 #
 # Release image tag format:
 #   ghcr.io/gesandrewmoore/dex-heimges:
-#     YYYYMMDDHHMM-dex_<upstream-sha>-patch_<repository-sha>
+#     YYYYMMDDHHMM-dex_<upstream-sha>-patch_<patch-commit-sha>
 #
 # Development image tag format:
-#   dex-heimges:dev-YYYYMMDDHHMM-dex_<upstream-sha>
+#   dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-dev
 #
 # Prerequisites:
 #   - Git
@@ -43,11 +43,16 @@ set -eu
 #   - Clean Git working tree
 #   - Local HEAD exactly matches origin/main
 #
+# Upstream freshness check:
+#   Both release and development builds compare the pinned Dex commit with the
+#   current tip of upstream Dex master. If they differ, the script displays
+#   both short and full SHAs and requires confirmation before continuing.
+#
 # Output:
 #   Release builds create a GHCR-namespaced local image and record its exact
 #   image name in .build-image for use by publish.sh.
 #
-#   Development builds create only a local dex-heimges:dev-* image and remove
+#   Development builds create only a local dex-heimges:*-dev image and remove
 #   any existing .build-image so a development workflow cannot leave a stale
 #   image reference available for publishing.
 #
@@ -62,6 +67,7 @@ set -eu
 # -----------------------------------------------------------------------------
 
 # Exact upstream Dex commit to build.
+DEX_REPO="https://github.com/dexidp/dex.git"
 DEX_COMMIT="7ace0e79cc6cfd2ed9373a2daa50cfb683e2e390"
 
 RELEASE_IMAGE_REPO="ghcr.io/gesandrewmoore/dex-heimges"
@@ -117,7 +123,7 @@ case "$BUILD_MODE" in
         IMAGE="${RELEASE_IMAGE_REPO}:${IMAGE_TAG}"
         ;;
     dev)
-        IMAGE_TAG="dev-${BUILD_TIME}-dex_${DEX_SHORT}"
+        IMAGE_TAG="${BUILD_TIME}-dex_${DEX_SHORT}-dev"
         IMAGE="${DEV_IMAGE_REPO}:${IMAGE_TAG}"
         ;;
 esac
@@ -204,15 +210,62 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# Upstream Dex freshness check
+# -----------------------------------------------------------------------------
+
+echo "Checking upstream Dex master..."
+
+DEX_MASTER_COMMIT="$(
+    git ls-remote "$DEX_REPO" refs/heads/master | awk '{print $1}'
+)"
+
+if [ -z "$DEX_MASTER_COMMIT" ]; then
+    echo "Error: unable to determine the current upstream Dex master commit."
+    exit 1
+fi
+
+if [ "$DEX_MASTER_COMMIT" != "$DEX_COMMIT" ]; then
+    DEX_MASTER_SHORT="$(printf '%s' "$DEX_MASTER_COMMIT" | cut -c1-7)"
+
+    echo
+    echo "NOTICE: upstream Dex master differs from the pinned commit."
+    echo
+    echo "Pinned commit:"
+    echo "  short: ${DEX_SHORT}"
+    echo "  full:  ${DEX_COMMIT}"
+    echo
+    echo "Current master:"
+    echo "  short: ${DEX_MASTER_SHORT}"
+    echo "  full:  ${DEX_MASTER_COMMIT}"
+    echo
+    printf "Continue building the pinned commit? [y/N] "
+
+    CONTINUE_BUILD=""
+    if ! IFS= read -r CONTINUE_BUILD; then
+        CONTINUE_BUILD=""
+    fi
+
+    case "$CONTINUE_BUILD" in
+        y|Y)
+            ;;
+        *)
+            echo "Build cancelled."
+            exit 0
+            ;;
+    esac
+fi
+
+# -----------------------------------------------------------------------------
 # Build summary
 # -----------------------------------------------------------------------------
 
-echo "Build mode:      ${BUILD_MODE}"
-echo "Build repo SHA:  ${REPO_SHORT}"
-echo "Dex commit SHA:  ${DEX_SHORT}"
-echo "Build time UTC:  ${BUILD_TIME}"
-echo "Image tag:       ${IMAGE}"
-echo "Patch directory: ${PATCH_DIR}"
+echo
+echo "Build mode:       ${BUILD_MODE}"
+echo "Build time UTC:   ${BUILD_TIME}"
+echo "Dex commit SHA:   ${DEX_SHORT}"
+echo "Patch commit SHA: ${REPO_SHORT}"
+echo "Image tag:        ${IMAGE}"
+echo "Patch directory:  ${PATCH_DIR}"
 echo
 
 if [ "$BUILD_MODE" = "dev" ]; then
@@ -230,7 +283,7 @@ echo "Fetching Dex commit ${DEX_SHORT}..."
 git init "$BUILD_DIR/dex" >/dev/null 2>&1
 cd "$BUILD_DIR/dex"
 
-git remote add origin https://github.com/dexidp/dex.git
+git remote add origin "$DEX_REPO"
 git fetch --depth 1 origin "$DEX_COMMIT"
 git checkout FETCH_HEAD
 

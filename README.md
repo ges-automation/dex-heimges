@@ -209,7 +209,7 @@ both authentication paths generate the same OIDC subject.
 Publishable release images use the GHCR namespace and the following tag format:
 
 ```text
-ghcr.io/gesandrewmoore/dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-patch_<repository-sha>
+ghcr.io/gesandrewmoore/dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-patch_<patch-commit-sha>
 ```
 
 For example:
@@ -222,25 +222,25 @@ The components are:
 
 - `YYYYMMDDHHMM` - image build time in UTC
 - `dex_<upstream-sha>` - short commit SHA of the upstream Dex source
-- `patch_<repository-sha>` - short commit SHA of this `dex-heimges` repository
+- `patch_<patch-commit-sha>` - short commit SHA of this `dex-heimges` repository
 
-The repository SHA identifies the exact version of the patch files, build
-script, publish script, documentation, and other repository contents used for
-the release build.
+The patch commit SHA identifies the exact commit of this `dex-heimges`
+repository, including the patch files, build script, publish script,
+documentation, and other repository contents used for the release build.
 
 ### Development images
 
-Development builds intentionally omit both the GHCR namespace and repository
-SHA. They use the local-only format:
+Development builds intentionally omit both the GHCR namespace and patch
+commit SHA. They use the local-only format:
 
 ```text
-dex-heimges:dev-YYYYMMDDHHMM-dex_<upstream-sha>
+dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-dev
 ```
 
 For example:
 
 ```text
-dex-heimges:dev-202609181015-dex_7ace0e7
+dex-heimges:202609181015-dex_7ace0e7-dev
 ```
 
 This makes development images visually distinct from publishable release
@@ -264,13 +264,16 @@ Release builds are intentionally strict. Before building, the script:
 2. Requires a clean Git working tree with no uncommitted or untracked files.
 3. Fetches the latest `origin/main`.
 4. Requires local `HEAD` to exactly match `origin/main`.
-5. Determines the current UTC build timestamp and repository commit.
-6. Fetches the exact configured upstream Dex commit.
-7. Discovers all `*.patch` files in `patches/`.
-8. Verifies that every patch applies cleanly.
-9. Applies all patches in lexical filename order.
-10. Builds the resulting Docker image in the GHCR release namespace.
-11. Records the exact image name in `.build-image` for use by `publish.sh`.
+5. Checks the pinned Dex commit against the current tip of upstream `master`.
+6. If upstream `master` differs, displays both short and full SHAs and asks
+   whether to continue with the pinned commit.
+7. Determines the current UTC build timestamp and patch repository commit.
+8. Fetches the exact configured upstream Dex commit.
+9. Discovers all `*.patch` files in `patches/`.
+10. Verifies that every patch applies cleanly.
+11. Applies all patches in lexical filename order.
+12. Builds the resulting Docker image in the GHCR release namespace.
+13. Records the exact image name in `.build-image` for use by `publish.sh`.
 
 The completed image will be named similar to:
 
@@ -308,9 +311,11 @@ Development mode:
 
 - Allows uncommitted and untracked repository changes.
 - Does not require the checkout to match `origin/main`.
+- Checks the pinned Dex commit against the current tip of upstream `master`
+  and prompts before continuing if they differ.
 - Uses the current files in `patches/`, including newly-created untracked patch files.
 - Builds into the local `dex-heimges` namespace instead of `ghcr.io`.
-- Omits the repository SHA from the image tag.
+- Omits the patch commit SHA from the image tag.
 - Does not create `.build-image`.
 - Removes any existing `.build-image` so a stale release image cannot be
   published after a development build.
@@ -318,7 +323,7 @@ Development mode:
 A development image will be named similar to:
 
 ```text
-dex-heimges:dev-202609181015-dex_7ace0e7
+dex-heimges:202609181015-dex_7ace0e7-dev
 ```
 
 This mode is intended for iterating on patches directly on a Docker host,
@@ -468,7 +473,12 @@ docker compose images
 
 ## Updating the Upstream Dex Revision
 
-The upstream Dex source is pinned to an exact commit in `build.sh`.
+The upstream Dex source is pinned to an exact commit in `build.sh`. Both release
+and development builds compare that pin with the current tip of upstream Dex
+`master`. If they differ, the build pauses and displays both the short and full
+SHA for the pinned commit and current `master` before asking whether to
+continue. The full current `master` SHA can be copied directly into
+`DEX_COMMIT` when intentionally advancing the pin.
 
 When updating Dex:
 
@@ -481,7 +491,7 @@ When updating Dex:
 7. Publish the tested image with `./publish.sh`.
 
 If the patch files do not need to change, the upstream Dex SHA changes while
-the repository SHA reflects the commit containing the updated build
+the patch commit SHA reflects the commit containing the updated build
 configuration.
 
 ## Adding or Updating Patches
@@ -520,9 +530,9 @@ Then create the publishable release build:
 ./build.sh
 ```
 
-The release build's clean-tree and `origin/main` checks ensure that the
-repository SHA embedded in the image tag represents the exact published source
-used for the build.
+The release build's clean-tree and `origin/main` checks ensure that the patch
+commit SHA embedded in the image tag represents the exact published source used
+for the build.
 
 ## License
 
