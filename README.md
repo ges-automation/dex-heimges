@@ -12,6 +12,34 @@ Pre-built container images are published to:
 ghcr.io/gesandrewmoore/dex-heimges
 ```
 
+## Repository Layout
+
+```text
+dex-heimges/
+├── .gitignore
+├── LICENSE
+├── README.md
+├── build.sh
+├── publish.sh
+└── patches/
+    ├── ges-claims.go.patch
+    └── ges-ldap.go.patch
+```
+
+Patch files are stored in the `patches/` directory.
+
+`build.sh` automatically discovers all `*.patch` files in that directory,
+validates them, and applies them in lexical filename order.
+
+If patch ordering becomes important, use numeric filename prefixes such as:
+
+```text
+patches/
+├── 010-ges-claims.go.patch
+├── 020-ges-ldap.go.patch
+└── 030-example.patch
+```
+
 ## Patches
 
 ### Connector ID normalization
@@ -50,7 +78,8 @@ The components are:
 - `patch_<repository-sha>` - short commit SHA of this `dex-heimges` repository
 
 The repository SHA identifies the exact version of the patch files, build
-script, documentation, and other repository contents used for the build.
+script, publish script, documentation, and other repository contents used for
+the build.
 
 ## Building
 
@@ -76,13 +105,17 @@ Build the image:
 
 The build script:
 
-1. Determines the current UTC build timestamp.
-2. Determines the current `dex-heimges` repository commit.
-3. Fetches the exact configured upstream Dex commit.
-4. Verifies that each patch applies cleanly.
-5. Applies the HEIMGES patches.
-6. Builds the resulting Docker image.
-7. Tags the image using the versioning convention documented above.
+1. Verifies that Git and Docker are available.
+2. Requires a clean Git working tree with no uncommitted or untracked files.
+3. Determines the current UTC build timestamp.
+4. Determines the current `dex-heimges` repository commit.
+5. Fetches the exact configured upstream Dex commit.
+6. Discovers all `*.patch` files in `patches/`.
+7. Verifies that every patch applies cleanly.
+8. Applies all patches in lexical filename order.
+9. Builds the resulting Docker image.
+10. Tags the image using the versioning convention documented above.
+11. Records the exact image name in `.build-image` for use by `publish.sh`.
 
 The completed image will be named similar to:
 
@@ -90,43 +123,95 @@ The completed image will be named similar to:
 ghcr.io/gesandrewmoore/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
 ```
 
+The `.build-image` file is local build state and is excluded from Git.
+
 ## Publishing to GitHub Container Registry
 
-Publishing requires authentication to the GitHub Container Registry.
+Publishing is handled separately from building.
 
-Create a GitHub personal access token with permission to write packages, then
-authenticate Docker to GHCR:
+Run:
 
 ```sh
-read -rsp "GitHub PAT: " CR_PAT
-echo
-echo "$CR_PAT" | docker login ghcr.io \
-    -u gesandrewmoore \
-    --password-stdin
-unset CR_PAT
+./publish.sh
 ```
 
-A successful login should report:
+The publish script:
+
+1. Reads the image name recorded by the most recent successful `build.sh` run.
+2. Verifies that the image exists locally.
+3. Reads the GHCR username and personal access token from 1Password.
+4. Reuses an existing 1Password CLI session if one is already active.
+5. Otherwise performs an interactive 1Password sign-in for the duration of the script.
+6. Authenticates Docker to `ghcr.io` using a temporary Docker configuration.
+7. Pushes the recorded image to GitHub Container Registry.
+8. Deletes the temporary Docker authentication state when the script exits.
+
+### 1Password Configuration
+
+Publishing requires the [1Password CLI](https://developer.1password.com/docs/cli/)
+and a 1Password item containing these fields:
 
 ```text
-Login Succeeded
+username
+credential
 ```
 
-To build and immediately publish a new image:
+The `credential` field should contain a GitHub personal access token with
+permission to write packages to GHCR.
 
-```sh
-PUSH=1 ./build.sh
+The script expects the environment variable:
+
+```text
+GHCR_PAT_OP_REF
 ```
 
-A normal build without `PUSH=1` remains local:
+to contain a 1Password item reference, for example:
 
-```sh
-./build.sh
+```text
+op://<vault-id>/<item-id>
 ```
 
-This is useful when testing changes before publishing them.
+If `GHCR_PAT_OP_REF` is not set, `publish.sh` prompts for the reference and
+offers to save it to:
 
-### First Publication
+```text
+~/.profile
+```
+
+Only the 1Password item reference is stored in the profile. The GitHub token
+itself remains stored in 1Password.
+
+The script reads the two required fields as:
+
+```text
+${GHCR_PAT_OP_REF}/username
+${GHCR_PAT_OP_REF}/credential
+```
+
+### 1Password Authentication
+
+If you are already signed into the 1Password CLI in the current shell,
+`publish.sh` reuses that session.
+
+Otherwise, the script performs an interactive `op signin` internally. That
+session exists only for the lifetime of `publish.sh` and is not persisted back
+into the parent interactive shell.
+
+### Docker Authentication
+
+`publish.sh` creates a temporary `DOCKER_CONFIG` directory before logging into
+GHCR.
+
+This prevents the GitHub token from being persisted in:
+
+```text
+~/.docker/config.json
+```
+
+The temporary Docker configuration is deleted automatically when the script
+finishes.
+
+## First Publication
 
 New GitHub Container Registry packages may need their visibility changed after
 the initial push.
@@ -186,13 +271,34 @@ When updating Dex:
 2. Update `DEX_COMMIT` in `build.sh`.
 3. Commit and push the change to this repository.
 4. Run the build normally.
-5. Confirm that all patches pass `git apply --check`.
+5. Confirm that all patches pass validation.
 6. Test the resulting image.
-7. Publish the tested image.
+7. Publish the tested image with `./publish.sh`.
 
 If the patch files do not need to change, the upstream Dex SHA changes while
 the repository SHA reflects the commit containing the updated build
 configuration.
+
+## Adding or Updating Patches
+
+Add new patch files to:
+
+```text
+patches/
+```
+
+No changes to `build.sh` are required for additional `*.patch` files.
+
+Before building:
+
+```sh
+git add patches/
+git commit -m "Update Dex patches"
+git push
+```
+
+The clean-tree requirement ensures that the repository SHA embedded in the
+image tag represents all patch files used by the build.
 
 ## License
 
