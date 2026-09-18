@@ -5,7 +5,7 @@ set -eu
 # Script:       publish.sh
 # Author:       Andrew J. Moore
 # Date:         2026-09-18
-# Revision:     r3
+# Revision:     r4
 #
 # Description:
 #   Publishes the most recently built dex-heimges container image to the
@@ -26,7 +26,7 @@ set -eu
 #   - Docker CLI installed
 #   - 1Password CLI (op) installed
 #   - Access to the referenced 1Password item
-#   - A successful ./build.sh run that created .build-image
+#   - A successful release build that created .build-image
 #
 # Environment:
 #   GHCR_PAT_OP_REF
@@ -47,7 +47,8 @@ set -eu
 # =============================================================================
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-IMAGE_FILE="$SCRIPT_DIR/.build-image"
+REPO_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+IMAGE_FILE="$REPO_DIR/.build-image"
 PROFILE_FILE="$HOME/.profile"
 EXPECTED_IMAGE_PREFIX="ghcr.io/gesandrewmoore/dex-heimges:"
 LATEST_IMAGE="ghcr.io/gesandrewmoore/dex-heimges:latest"
@@ -127,7 +128,7 @@ if [ ! -f "$IMAGE_FILE" ]; then
     echo "Error: no built image is recorded in:"
     echo "  $IMAGE_FILE"
     echo
-    echo "Run ./build.sh first."
+    echo "Run 'make' or ./scripts/build.sh first."
     exit 1
 fi
 
@@ -156,7 +157,7 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
     echo "Error: recorded image does not exist locally:"
     echo "  $IMAGE"
     echo
-    echo "Run ./build.sh first."
+    echo "Run 'make' or ./scripts/build.sh first."
     exit 1
 fi
 

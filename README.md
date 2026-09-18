@@ -18,18 +18,21 @@ ghcr.io/gesandrewmoore/dex-heimges
 dex-heimges/
 ├── .gitignore
 ├── LICENSE
+├── Makefile
 ├── README.md
-├── build.sh
-├── build-dev.sh
-├── publish.sh
-└── patches/
-    ├── ges-claims.go.patch
-    └── ges-ldap.go.patch
+├── patches/
+│   ├── ges-claims.go.patch
+│   └── ges-ldap.go.patch
+└── scripts/
+    ├── build.sh
+    ├── build-dev.sh
+    ├── cleanup-images.sh
+    └── publish.sh
 ```
 
 Patch files are stored in the `patches/` directory.
 
-`build.sh` automatically discovers all `*.patch` files in that directory,
+`scripts/build.sh` automatically discovers all `*.patch` files in that directory,
 validates them, and applies them in lexical filename order.
 
 If patch ordering becomes important, use numeric filename prefixes such as:
@@ -244,18 +247,49 @@ dex-heimges:202609181015-dex_7ace0e7-dev
 ```
 
 This makes development images visually distinct from publishable release
-images and prevents them from being accepted by `publish.sh`.
+images and prevents them from being accepted by `scripts/publish.sh`.
 
 ## Building
 
-`build.sh` supports two build modes: release and development.
+The repository uses `make` as the primary human-facing interface. The shell
+scripts in `scripts/` remain independently runnable and contain the actual
+build, publish, and cleanup logic.
+
+Available Make targets are:
+
+```text
+make                Build a publishable release image
+make release-image  Build a publishable release image explicitly
+make dev             Build a local development image
+make dev-image       Build a local development image explicitly
+make publish         Publish the most recent release image
+make clean           Remove local dex-heimges release and development images
+```
+
+`release-image` is the default target, so plain `make` is equivalent to:
+
+```sh
+make release-image
+```
 
 ### Release builds
 
-A normal invocation creates a publishable release image:
+Create a publishable release image with:
 
 ```sh
-./build.sh
+make
+```
+
+or explicitly:
+
+```sh
+make release-image
+```
+
+The underlying script can also be run directly:
+
+```sh
+./scripts/build.sh
 ```
 
 Release builds are intentionally strict. Before building, the script:
@@ -273,7 +307,7 @@ Release builds are intentionally strict. Before building, the script:
 10. Verifies that every patch applies cleanly.
 11. Applies all patches in lexical filename order.
 12. Builds the resulting Docker image in the GHCR release namespace.
-13. Records the exact image name in `.build-image` for use by `publish.sh`.
+13. Records the exact image name in `.build-image` for use by `make publish`.
 
 The completed image will be named similar to:
 
@@ -296,16 +330,28 @@ Use development mode when creating or modifying patches that have not yet been
 committed and pushed:
 
 ```sh
-./build.sh --dev
+make dev
 ```
 
-For convenience, the repository also includes a wrapper:
+or explicitly:
 
 ```sh
-./build-dev.sh
+make dev-image
 ```
 
-Both commands perform the same development build.
+The underlying scripts remain available directly:
+
+```sh
+./scripts/build-dev.sh
+```
+
+or:
+
+```sh
+./scripts/build.sh --dev
+```
+
+All four forms ultimately use the same development build logic.
 
 Development mode:
 
@@ -330,6 +376,26 @@ This mode is intended for iterating on patches directly on a Docker host,
 running the resulting image locally, and validating changes before committing
 them.
 
+### Cleaning local images
+
+Remove all local `dex-heimges` release and development images with:
+
+```sh
+make clean
+```
+
+This delegates to `scripts/cleanup-images.sh`, which targets only these two
+image repositories:
+
+```text
+ghcr.io/gesandrewmoore/dex-heimges
+dex-heimges
+```
+
+It does not remove containers, volumes, networks, or Docker/BuildKit build
+cache. Images currently required by a container may be refused by Docker until
+that container is removed.
+
 ## Publishing to GitHub Container Registry
 
 Publishing is handled separately from building.
@@ -337,7 +403,13 @@ Publishing is handled separately from building.
 Run:
 
 ```sh
-./publish.sh
+make publish
+```
+
+The underlying script can also be run directly:
+
+```sh
+./scripts/publish.sh
 ```
 
 The publish script:
@@ -355,6 +427,16 @@ The publish script:
 Development builds cannot be published through this workflow: they do not
 write `.build-image`, and the explicit GHCR namespace check provides an
 additional safeguard against publishing a local development image.
+
+After the versioned release tag is pushed successfully, the same image is also
+tagged and pushed as:
+
+```text
+ghcr.io/gesandrewmoore/dex-heimges:latest
+```
+
+The immutable versioned tag remains available while `latest` moves to the most
+recently published release.
 
 ### 1Password Configuration
 
@@ -381,7 +463,7 @@ to contain a 1Password item reference, for example:
 op://<vault-id>/<item-id>
 ```
 
-If `GHCR_PAT_OP_REF` is not set, `publish.sh` prompts for the reference and
+If `GHCR_PAT_OP_REF` is not set, `scripts/publish.sh` prompts for the reference and
 offers to save it to:
 
 ```text
@@ -401,15 +483,15 @@ ${GHCR_PAT_OP_REF}/credential
 ### 1Password Authentication
 
 If you are already signed into the 1Password CLI in the current shell,
-`publish.sh` reuses that session.
+`scripts/publish.sh` reuses that session.
 
 Otherwise, the script performs an interactive `op signin` internally. That
-session exists only for the lifetime of `publish.sh` and is not persisted back
+session exists only for the lifetime of `scripts/publish.sh` and is not persisted back
 into the parent interactive shell.
 
 ### Docker Authentication
 
-`publish.sh` creates a temporary `DOCKER_CONFIG` directory before logging into
+`scripts/publish.sh` creates a temporary `DOCKER_CONFIG` directory before logging into
 GHCR.
 
 This prevents the GitHub token from being persisted in:
@@ -442,19 +524,24 @@ Pull a specific published image with:
 docker pull ghcr.io/gesandrewmoore/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
 ```
 
-Deployments should reference a specific versioned tag rather than relying on a
-moving tag such as `latest`.
+Deployments may either pin a specific immutable versioned tag or intentionally
+track the moving `latest` tag. `latest` always points to the most recently
+published release.
 
 ## Docker Compose
 
-Reference the desired image directly in `compose.yml` or
-`docker-compose.yml`:
+Reference either a specific release or the moving `latest` tag in `compose.yml`
+or `docker-compose.yml`. For deployments that should track the current
+published release:
 
 ```yaml
 services:
   dex:
-    image: ghcr.io/gesandrewmoore/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
+    image: ghcr.io/gesandrewmoore/dex-heimges:latest
 ```
+
+For deployments that should remain pinned until intentionally changed, use a
+specific versioned tag instead.
 
 Because the package is public, deployment hosts do not require a GitHub login.
 
@@ -473,7 +560,7 @@ docker compose images
 
 ## Updating the Upstream Dex Revision
 
-The upstream Dex source is pinned to an exact commit in `build.sh`. Both release
+The upstream Dex source is pinned to an exact commit in `scripts/build.sh`. Both release
 and development builds compare that pin with the current tip of upstream Dex
 `master`. If they differ, the build pauses and displays both the short and full
 SHA for the pinned commit and current `master` before asking whether to
@@ -483,12 +570,12 @@ continue. The full current `master` SHA can be copied directly into
 When updating Dex:
 
 1. Select the desired upstream Dex commit.
-2. Update `DEX_COMMIT` in `build.sh`.
+2. Update `DEX_COMMIT` in `scripts/build.sh`.
 3. Commit and push the change to this repository.
 4. Run the build normally.
 5. Confirm that all patches pass validation.
 6. Test the resulting image.
-7. Publish the tested image with `./publish.sh`.
+7. Publish the tested image with `make publish`.
 
 If the patch files do not need to change, the upstream Dex SHA changes while
 the patch commit SHA reflects the commit containing the updated build
@@ -502,18 +589,19 @@ Add new patch files to:
 patches/
 ```
 
-No changes to `build.sh` are required for additional `*.patch` files.
+No changes to `scripts/build.sh` are required for additional `*.patch` files.
 
 While developing a patch, build and test the current working tree with:
 
 ```sh
-./build-dev.sh
+make dev
 ```
 
-or:
+The direct script equivalents are:
 
 ```sh
-./build.sh --dev
+./scripts/build-dev.sh
+./scripts/build.sh --dev
 ```
 
 After the patch has been validated, commit and push it:
@@ -527,7 +615,7 @@ git push
 Then create the publishable release build:
 
 ```sh
-./build.sh
+make
 ```
 
 The release build's clean-tree and `origin/main` checks ensure that the patch

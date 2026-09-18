@@ -5,7 +5,7 @@ set -eu
 # Script:       build-dev.sh
 # Author:       Andrew J. Moore
 # Date:         2026-09-18
-# Revision:     r1
+# Revision:     r2
 #
 # Description:
 #   Convenience wrapper for creating a local development build of dex-heimges.

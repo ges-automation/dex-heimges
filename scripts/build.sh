@@ -5,7 +5,7 @@ set -eu
 # Script:       build.sh
 # Author:       Andrew J. Moore
 # Date:         2026-09-18
-# Revision:     r4
+# Revision:     r5
 #
 # Description:
 #   Builds the custom dex-heimges container image from an exact pinned
@@ -21,10 +21,10 @@ set -eu
 #   as publishable images.
 #
 # Build modes:
-#   ./build.sh
+#   ./scripts/build.sh
 #       Release build.
 #
-#   ./build.sh --dev
+#   ./scripts/build.sh --dev
 #       Development build using the current local working tree.
 #
 # Release image tag format:
@@ -37,7 +37,7 @@ set -eu
 # Prerequisites:
 #   - Git
 #   - Docker Engine / Docker CLI
-#   - One or more *.patch files in ./patches
+#   - One or more *.patch files in ../patches
 #
 # Release build requirements:
 #   - Clean Git working tree
@@ -110,11 +110,12 @@ fi
 # -----------------------------------------------------------------------------
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-PATCH_DIR="$SCRIPT_DIR/patches"
-IMAGE_FILE="$SCRIPT_DIR/.build-image"
+REPO_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+PATCH_DIR="$REPO_DIR/patches"
+IMAGE_FILE="$REPO_DIR/.build-image"
 
 DEX_SHORT="$(printf '%s' "$DEX_COMMIT" | cut -c1-7)"
-REPO_SHORT="$(git -C "$SCRIPT_DIR" rev-parse --short=7 HEAD)"
+REPO_SHORT="$(git -C "$REPO_DIR" rev-parse --short=7 HEAD)"
 BUILD_TIME="$(date -u +%Y%m%d%H%M)"
 
 case "$BUILD_MODE" in
@@ -178,30 +179,30 @@ fi
 
 if [ "$BUILD_MODE" = "release" ]; then
     # Ensure all source used by the build is represented by the repository SHA.
-    if [ -n "$(git -C "$SCRIPT_DIR" status --porcelain)" ]; then
+    if [ -n "$(git -C "$REPO_DIR" status --porcelain)" ]; then
         echo "Error: repository has uncommitted or untracked changes."
         echo
-        git -C "$SCRIPT_DIR" status --short
+        git -C "$REPO_DIR" status --short
         echo
         echo "Commit or stash your changes before creating a release build."
-        echo "Use ./build.sh --dev for a local development build."
+        echo "Use ./scripts/build.sh --dev or make dev for a local development build."
         exit 1
     fi
 
     echo "Checking origin/main..."
-    git -C "$SCRIPT_DIR" fetch --quiet origin main
+    git -C "$REPO_DIR" fetch --quiet origin main
 
-    LOCAL_HEAD="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
-    REMOTE_HEAD="$(git -C "$SCRIPT_DIR" rev-parse origin/main)"
+    LOCAL_HEAD="$(git -C "$REPO_DIR" rev-parse HEAD)"
+    REMOTE_HEAD="$(git -C "$REPO_DIR" rev-parse origin/main)"
 
     if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
         echo "Error: local repository does not match origin/main."
         echo
-        echo "Local HEAD:  $(git -C "$SCRIPT_DIR" rev-parse --short=7 HEAD)"
-        echo "origin/main: $(git -C "$SCRIPT_DIR" rev-parse --short=7 origin/main)"
+        echo "Local HEAD:  $(git -C "$REPO_DIR" rev-parse --short=7 HEAD)"
+        echo "origin/main: $(git -C "$REPO_DIR" rev-parse --short=7 origin/main)"
         echo
         echo "Run 'git pull --ff-only' before creating a release build."
-        echo "Use ./build.sh --dev for a local development build."
+        echo "Use ./scripts/build.sh --dev or make dev for a local development build."
         exit 1
     fi
 else
