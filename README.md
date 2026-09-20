@@ -255,10 +255,17 @@ The repository uses `make` as the primary human-facing interface. The shell
 scripts in `scripts/` remain independently runnable and contain the actual
 build, publish, and cleanup logic.
 
+Run the self-documenting help target to see the available commands:
+
+```sh
+make help
+```
+
 Available Make targets are:
 
 ```text
 make                 Build a publishable release image
+make help            Show available targets
 make release-image   Build a publishable release image explicitly
 make dev             Build a local development image
 make dev-image       Build a local development image explicitly
