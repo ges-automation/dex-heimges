@@ -9,7 +9,7 @@ Directory environment.
 Pre-built container images are published to:
 
 ```text
-ghcr.io/gesandrewmoore/dex-heimges
+ghcr.io/ges-automation/dex-heimges
 ```
 
 ## Repository Layout
@@ -212,13 +212,13 @@ both authentication paths generate the same OIDC subject.
 Publishable release images use the GHCR namespace and the following tag format:
 
 ```text
-ghcr.io/gesandrewmoore/dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-patch_<patch-commit-sha>
+ghcr.io/ges-automation/dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-patch_<patch-commit-sha>
 ```
 
 For example:
 
 ```text
-ghcr.io/gesandrewmoore/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
+ghcr.io/ges-automation/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
 ```
 
 The components are:
@@ -312,7 +312,7 @@ Release builds are intentionally strict. Before building, the script:
 The completed image will be named similar to:
 
 ```text
-ghcr.io/gesandrewmoore/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
+ghcr.io/ges-automation/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
 ```
 
 If the local checkout is behind, ahead of, or otherwise different from
@@ -388,7 +388,7 @@ This delegates to `scripts/cleanup-images.sh`, which targets only these two
 image repositories:
 
 ```text
-ghcr.io/gesandrewmoore/dex-heimges
+ghcr.io/ges-automation/dex-heimges
 dex-heimges
 ```
 
@@ -415,7 +415,7 @@ The underlying script can also be run directly:
 The publish script:
 
 1. Reads the image name recorded by the most recent successful release build.
-2. Refuses images outside `ghcr.io/gesandrewmoore/dex-heimges`.
+2. Refuses images outside `ghcr.io/ges-automation/dex-heimges`.
 3. Verifies that the image exists locally.
 4. Reads the GHCR username and personal access token from 1Password.
 5. Reuses an existing 1Password CLI session if one is already active.
@@ -432,7 +432,7 @@ After the versioned release tag is pushed successfully, the same image is also
 tagged and pushed as:
 
 ```text
-ghcr.io/gesandrewmoore/dex-heimges:latest
+ghcr.io/ges-automation/dex-heimges:latest
 ```
 
 The immutable versioned tag remains available while `latest` moves to the most
@@ -521,7 +521,7 @@ Once public, the image can be pulled anonymously without GitHub credentials.
 Pull a specific published image with:
 
 ```sh
-docker pull ghcr.io/gesandrewmoore/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
+docker pull ghcr.io/ges-automation/dex-heimges:202609181015-dex_7ace0e7-patch_f781d43
 ```
 
 Deployments may either pin a specific immutable versioned tag or intentionally
@@ -537,7 +537,7 @@ published release:
 ```yaml
 services:
   dex:
-    image: ghcr.io/gesandrewmoore/dex-heimges:latest
+    image: ghcr.io/ges-automation/dex-heimges:latest
 ```
 
 For deployments that should remain pinned until intentionally changed, use a

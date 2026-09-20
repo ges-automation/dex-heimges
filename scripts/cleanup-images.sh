@@ -13,14 +13,14 @@ set -eu
 #   or Docker/BuildKit build cache.
 #
 # Image repositories removed:
-#   - ghcr.io/gesandrewmoore/dex-heimges
+#   - ghcr.io/ges-automation/dex-heimges
 #   - dex-heimges
 #
 # Prerequisites:
 #   - Docker Engine / Docker CLI
 # =============================================================================
 
-RELEASE_IMAGE_REPO="ghcr.io/gesandrewmoore/dex-heimges"
+RELEASE_IMAGE_REPO="ghcr.io/ges-automation/dex-heimges"
 DEV_IMAGE_REPO="dex-heimges"
 
 if ! command -v docker >/dev/null 2>&1; then

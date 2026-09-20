@@ -28,7 +28,7 @@ set -eu
 #       Development build using the current local working tree.
 #
 # Release image tag format:
-#   ghcr.io/gesandrewmoore/dex-heimges:
+#   ghcr.io/ges-automation/dex-heimges:
 #     YYYYMMDDHHMM-dex_<upstream-sha>-patch_<patch-commit-sha>
 #
 # Development image tag format:
@@ -70,7 +70,7 @@ set -eu
 DEX_REPO="https://github.com/dexidp/dex.git"
 DEX_COMMIT="7ace0e79cc6cfd2ed9373a2daa50cfb683e2e390"
 
-RELEASE_IMAGE_REPO="ghcr.io/gesandrewmoore/dex-heimges"
+RELEASE_IMAGE_REPO="ghcr.io/ges-automation/dex-heimges"
 DEV_IMAGE_REPO="dex-heimges"
 
 # -----------------------------------------------------------------------------
@@ -327,7 +327,7 @@ docker build \
     --build-arg VERSION="${IMAGE_TAG}" \
     --label org.opencontainers.image.title="dex-heimges" \
     --label org.opencontainers.image.description="Custom Dex build with HEIMGES patches" \
-    --label org.opencontainers.image.source="https://github.com/gesandrewmoore/dex-heimges" \
+    --label org.opencontainers.image.source="https://github.com/ges-automation/dex-heimges" \
     --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --label org.opencontainers.image.version="${IMAGE_TAG}" \
     --label org.opencontainers.image.revision="${REPO_SHORT}" \

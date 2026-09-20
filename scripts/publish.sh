@@ -50,8 +50,8 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 IMAGE_FILE="$REPO_DIR/.build-image"
 PROFILE_FILE="$HOME/.profile"
-EXPECTED_IMAGE_PREFIX="ghcr.io/gesandrewmoore/dex-heimges:"
-LATEST_IMAGE="ghcr.io/gesandrewmoore/dex-heimges:latest"
+EXPECTED_IMAGE_PREFIX="ghcr.io/ges-automation/dex-heimges:"
+LATEST_IMAGE="ghcr.io/ges-automation/dex-heimges:latest"
 
 # -----------------------------------------------------------------------------
 # Prerequisite checks
