@@ -2,21 +2,21 @@
 set -eu
 
 # =============================================================================
-# Script:       publish.sh
+# Script:       image-push.sh
 # Author:       Andrew J. Moore
 # Date:         2026-09-18
-# Revision:     r4
+# Revision:     r5
 #
 # Description:
-#   Publishes the most recently built dex-heimges container image to the
+#   Pushes the most recently built dex-heimges container image to the
 #   GitHub Container Registry (GHCR).
 #
-#   The image to publish is read from .build-image, which is generated only
-#   by a successful release build. Images outside the expected dex-heimges
+#   The image to push is read from .build-image, which is generated only
+#   by a successful versioned image build. Images outside the expected dex-heimges
 #   GHCR namespace are explicitly rejected.
 #
 #   After the versioned image is pushed successfully, the same image is also
-#   tagged and pushed as :latest so deployments can track the current release.
+#   tagged and pushed as :latest so deployments can track the current version.
 #
 #   GHCR credentials are retrieved from 1Password using the 1Password CLI.
 #   Docker authentication is performed using a temporary DOCKER_CONFIG
@@ -26,7 +26,7 @@ set -eu
 #   - Docker CLI installed
 #   - 1Password CLI (op) installed
 #   - Access to the referenced 1Password item
-#   - A successful release build that created .build-image
+#   - A successful versioned image build that created .build-image
 #
 # Environment:
 #   GHCR_PAT_OP_REF
@@ -121,14 +121,14 @@ ensure_op_session() {
 ensure_op_session
 
 # -----------------------------------------------------------------------------
-# Determine image to publish
+# Determine image to push
 # -----------------------------------------------------------------------------
 
 if [ ! -f "$IMAGE_FILE" ]; then
     echo "Error: no built image is recorded in:"
     echo "  $IMAGE_FILE"
     echo
-    echo "Run 'make' or ./scripts/build.sh first."
+    echo "Run 'make image' or 'sh ./scripts/image.sh' first."
     exit 1
 fi
 
@@ -139,12 +139,12 @@ if [ -z "$IMAGE" ]; then
     exit 1
 fi
 
-# Refuse to publish anything outside the expected release image namespace.
+# Refuse to push anything outside the expected versioned image namespace.
 case "$IMAGE" in
     "$EXPECTED_IMAGE_PREFIX"*)
         ;;
     *)
-        echo "Error: refusing to publish image outside the expected GHCR repository:"
+        echo "Error: refusing to push image outside the expected GHCR repository:"
         echo "  $IMAGE"
         echo
         echo "Expected prefix:"
@@ -157,7 +157,7 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
     echo "Error: recorded image does not exist locally:"
     echo "  $IMAGE"
     echo
-    echo "Run 'make' or ./scripts/build.sh first."
+    echo "Run 'make image' or 'sh ./scripts/image.sh' first."
     exit 1
 fi
 
@@ -196,7 +196,7 @@ trap cleanup EXIT INT TERM
 export DOCKER_CONFIG
 
 # -----------------------------------------------------------------------------
-# Authenticate and publish
+# Authenticate and push
 # -----------------------------------------------------------------------------
 
 echo
@@ -210,7 +210,7 @@ printf '%s' "$GHCR_PAT" |
 unset GHCR_PAT
 
 echo
-echo "Publishing:"
+echo "Pushing:"
 echo "  $IMAGE"
 echo
 
@@ -225,6 +225,6 @@ docker tag "$IMAGE" "$LATEST_IMAGE"
 docker push "$LATEST_IMAGE"
 
 echo
-echo "Published successfully:"
+echo "Pushed successfully:"
 echo "  $IMAGE"
 echo "  $LATEST_IMAGE"

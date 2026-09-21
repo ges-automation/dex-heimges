@@ -2,32 +2,32 @@
 set -eu
 
 # =============================================================================
-# Script:       build.sh
+# Script:       image.sh
 # Author:       Andrew J. Moore
 # Date:         2026-09-18
-# Revision:     r5
+# Revision:     r6
 #
 # Description:
 #   Builds the custom dex-heimges container image from an exact pinned
 #   upstream Dex commit.
 #
-#   By default, the script creates a release build suitable for publication.
-#   Release builds require a clean repository whose HEAD exactly matches the
+#   By default, the script creates an official versioned image suitable for
+#   image-push. Versioned images require a clean repository whose HEAD matches the
 #   latest origin/main revision.
 #
 #   Passing --dev creates a local development image from the current working
 #   tree. Development builds may contain uncommitted or untracked changes,
 #   are intentionally kept outside the GHCR namespace, and are never recorded
-#   as publishable images.
+#   as pushable images.
 #
 # Build modes:
-#   ./scripts/build.sh
-#       Release build.
+#   sh ./scripts/image.sh
+#       Official versioned image.
 #
-#   ./scripts/build.sh --dev
+#   sh ./scripts/image.sh --dev
 #       Development build using the current local working tree.
 #
-# Release image tag format:
+# Versioned image tag format:
 #   ghcr.io/ges-automation/dex-heimges:
 #     YYYYMMDDHHMM-dex_<upstream-sha>-patch_<patch-commit-sha>
 #
@@ -39,22 +39,22 @@ set -eu
 #   - Docker Engine / Docker CLI
 #   - One or more *.patch files in ../patches
 #
-# Release build requirements:
+# Versioned image requirements:
 #   - Clean Git working tree
 #   - Local HEAD exactly matches origin/main
 #
 # Upstream freshness check:
-#   Both release and development builds compare the pinned Dex commit with the
+#   Both versioned and development images compare the pinned Dex commit with the
 #   current tip of upstream Dex master. If they differ, the script displays
 #   both short and full SHAs and requires confirmation before continuing.
 #
 # Output:
-#   Release builds create a GHCR-namespaced local image and record its exact
-#   image name in .build-image for use by publish.sh.
+#   Versioned builds create a GHCR-namespaced local image and record its exact
+#   image name in .build-image for use by image-push.sh.
 #
 #   Development builds create only a local dex-heimges:*-dev image and remove
 #   any existing .build-image so a development workflow cannot leave a stale
-#   image reference available for publishing.
+#   image reference available for pushing.
 #
 # Notes:
 #   Patch files are validated and applied in shell glob order, which normally
@@ -70,25 +70,25 @@ set -eu
 DEX_REPO="https://github.com/dexidp/dex.git"
 DEX_COMMIT="7ace0e79cc6cfd2ed9373a2daa50cfb683e2e390"
 
-RELEASE_IMAGE_REPO="ghcr.io/ges-automation/dex-heimges"
+VERSIONED_IMAGE_REPO="ghcr.io/ges-automation/dex-heimges"
 DEV_IMAGE_REPO="dex-heimges"
 
 # -----------------------------------------------------------------------------
 # Command-line arguments
 # -----------------------------------------------------------------------------
 
-BUILD_MODE="release"
+IMAGE_MODE="versioned"
 
 case "${1:-}" in
     "")
         ;;
     --dev)
-        BUILD_MODE="dev"
+        IMAGE_MODE="dev"
         ;;
     -h|--help)
         echo "Usage: $0 [--dev]"
         echo
-        echo "  no option   Build a publishable release image."
+        echo "  no option   Build an official versioned image locally."
         echo "  --dev       Build a local development image from the current working tree."
         exit 0
         ;;
@@ -118,10 +118,10 @@ DEX_SHORT="$(printf '%s' "$DEX_COMMIT" | cut -c1-7)"
 REPO_SHORT="$(git -C "$REPO_DIR" rev-parse --short=7 HEAD)"
 BUILD_TIME="$(date -u +%Y%m%d%H%M)"
 
-case "$BUILD_MODE" in
-    release)
+case "$IMAGE_MODE" in
+    versioned)
         IMAGE_TAG="${BUILD_TIME}-dex_${DEX_SHORT}-patch_${REPO_SHORT}"
-        IMAGE="${RELEASE_IMAGE_REPO}:${IMAGE_TAG}"
+        IMAGE="${VERSIONED_IMAGE_REPO}:${IMAGE_TAG}"
         ;;
     dev)
         IMAGE_TAG="${BUILD_TIME}-dex_${DEX_SHORT}-dev"
@@ -174,18 +174,18 @@ if [ "$PATCH_FOUND" -eq 0 ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Release source validation
+# Versioned image source validation
 # -----------------------------------------------------------------------------
 
-if [ "$BUILD_MODE" = "release" ]; then
+if [ "$IMAGE_MODE" = "versioned" ]; then
     # Ensure all source used by the build is represented by the repository SHA.
     if [ -n "$(git -C "$REPO_DIR" status --porcelain)" ]; then
         echo "Error: repository has uncommitted or untracked changes."
         echo
         git -C "$REPO_DIR" status --short
         echo
-        echo "Commit or stash your changes before creating a release build."
-        echo "Use ./scripts/build.sh --dev or make dev for a local development build."
+        echo "Commit or stash your changes before creating a versioned image."
+        echo "Use 'sh ./scripts/image.sh --dev' or 'make image-dev' for a local development image."
         exit 1
     fi
 
@@ -201,12 +201,12 @@ if [ "$BUILD_MODE" = "release" ]; then
         echo "Local HEAD:  $(git -C "$REPO_DIR" rev-parse --short=7 HEAD)"
         echo "origin/main: $(git -C "$REPO_DIR" rev-parse --short=7 origin/main)"
         echo
-        echo "Run 'git pull --ff-only' before creating a release build."
-        echo "Use ./scripts/build.sh --dev or make dev for a local development build."
+        echo "Run 'git pull --ff-only' before creating a versioned image."
+        echo "Use 'sh ./scripts/image.sh --dev' or 'make image-dev' for a local development image."
         exit 1
     fi
 else
-    # A development build must never leave a publishable image pointer behind.
+    # A development build must never leave a pushable image pointer behind.
     rm -f "$IMAGE_FILE"
 fi
 
@@ -261,7 +261,7 @@ fi
 # -----------------------------------------------------------------------------
 
 echo
-echo "Build mode:       ${BUILD_MODE}"
+echo "Image mode:       ${IMAGE_MODE}"
 echo "Build time UTC:   ${BUILD_TIME}"
 echo "Dex commit SHA:   ${DEX_SHORT}"
 echo "Patch commit SHA: ${REPO_SHORT}"
@@ -269,9 +269,9 @@ echo "Image tag:        ${IMAGE}"
 echo "Patch directory:  ${PATCH_DIR}"
 echo
 
-if [ "$BUILD_MODE" = "dev" ]; then
+if [ "$IMAGE_MODE" = "dev" ]; then
     echo "Development build: uncommitted and untracked repository changes are allowed."
-    echo "This image is local-only and cannot be published by publish.sh."
+    echo "This image is local-only and cannot be pushed by image-push.sh."
     echo
 fi
 
@@ -331,8 +331,8 @@ docker build \
     --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --label org.opencontainers.image.version="${IMAGE_TAG}" \
     --label org.opencontainers.image.revision="${REPO_SHORT}" \
-    --label io.ges.dex.upstream-revision="${DEX_COMMIT}" \
-    --label io.ges.build-mode="${BUILD_MODE}" \
+    --label com.gestech.dex.upstream-revision="${DEX_COMMIT}" \
+    --label com.gestech.dex.image-mode="${IMAGE_MODE}" \
     --tag "$IMAGE" \
     .
 
@@ -340,8 +340,8 @@ docker build \
 # Record and report build output
 # -----------------------------------------------------------------------------
 
-if [ "$BUILD_MODE" = "release" ]; then
-    # Record the exact image produced by this build for publish.sh.
+if [ "$IMAGE_MODE" = "versioned" ]; then
+    # Record the exact image produced by this build for image-push.sh.
     printf '%s\n' "$IMAGE" > "$IMAGE_FILE"
 fi
 
@@ -350,9 +350,9 @@ echo "Built image:"
 docker image inspect "$IMAGE" \
     --format '{{.RepoTags}} {{.Id}}'
 
-if [ "$BUILD_MODE" = "release" ]; then
+if [ "$IMAGE_MODE" = "versioned" ]; then
     echo
-    echo "Recorded publishable image:"
+    echo "Recorded pushable image:"
     echo "  $IMAGE_FILE"
     echo "  $IMAGE"
 else
