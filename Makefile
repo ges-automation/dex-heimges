@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: © 2026 GES Automation Technology, Inc.
+# SPDX-FileContributor: Andrew J. Moore
+# SPDX-License-Identifier: 0BSD
+#
+# ------------------------------------------------------------------------------------------
+# File:        Makefile
+# Revision:    r1
+# Modified:    2026-09-21
+# Author:      Andrew J. Moore
+# License:     Zero-Clause BSD (0BSD)
+# Source:      https://github.com/ges-automation/dex-heimges
+# Description: Provides the public build, publish, development, cleanup, and help targets
+#              for the dex-heimges container-image workflow.
+# ------------------------------------------------------------------------------------------
+
 .PHONY: help image image-dev image-push clean
 
 .DEFAULT_GOAL := image

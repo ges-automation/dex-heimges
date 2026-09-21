@@ -628,8 +628,8 @@ build the image.
 
 ## License
 
-The patches and original build tooling in this repository are licensed under
-the Apache License 2.0.
+The original work in this repository is licensed under the
+[Zero-Clause BSD license](LICENSE).
 
-Dex is maintained by the Dex project and is also licensed under the Apache
-License 2.0.
+Dex is maintained by the Dex project and is licensed under the Apache License
+2.0.

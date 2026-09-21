@@ -1,66 +1,54 @@
 #!/bin/sh
-set -eu
-
-# =============================================================================
-# Script:       image.sh
-# Author:       Andrew J. Moore
-# Date:         2026-09-18
-# Revision:     r6
 #
-# Description:
+# SPDX-FileCopyrightText: © 2026 GES Automation Technology, Inc.
+# SPDX-FileContributor: Andrew J. Moore
+# SPDX-License-Identifier: 0BSD
+#
+# =============================================================================
+# Script:       scripts/image.sh
+# Author:       Andrew J. Moore
+# Revised:      2026-09-21
+# Revision:     r7
+# Source:       https://github.com/ges-automation/dex-heimges
+#
+# Purpose:
 #   Builds the custom dex-heimges container image from an exact pinned
 #   upstream Dex commit.
 #
-#   By default, the script creates an official versioned image suitable for
-#   image-push. Versioned images require a clean repository whose HEAD matches the
-#   latest origin/main revision.
+# Comments:
+#   Versioned builds require a clean repository at origin/main, produce a
+#   GHCR-namespaced image, and record it in .build-image. Development builds
+#   permit working-tree changes, produce only a local *-dev image, and remove
+#   any stale .build-image file. Both modes compare the pinned Dex commit with
+#   upstream master and require confirmation when they differ.
 #
-#   Passing --dev creates a local development image from the current working
-#   tree. Development builds may contain uncommitted or untracked changes,
-#   are intentionally kept outside the GHCR namespace, and are never recorded
-#   as pushable images.
-#
-# Build modes:
-#   sh ./scripts/image.sh
-#       Official versioned image.
-#
-#   sh ./scripts/image.sh --dev
-#       Development build using the current local working tree.
-#
-# Versioned image tag format:
-#   ghcr.io/ges-automation/dex-heimges:
-#     YYYYMMDDHHMM-dex_<upstream-sha>-patch_<patch-commit-sha>
-#
-# Development image tag format:
-#   dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-dev
-#
-# Prerequisites:
-#   - Git
-#   - Docker Engine / Docker CLI
-#   - One or more *.patch files in ../patches
-#
-# Versioned image requirements:
-#   - Clean Git working tree
-#   - Local HEAD exactly matches origin/main
-#
-# Upstream freshness check:
-#   Both versioned and development images compare the pinned Dex commit with the
-#   current tip of upstream Dex master. If they differ, the script displays
-#   both short and full SHAs and requires confirmation before continuing.
-#
-# Output:
-#   Versioned builds create a GHCR-namespaced local image and record its exact
-#   image name in .build-image for use by image-push.sh.
-#
-#   Development builds create only a local dex-heimges:*-dev image and remove
-#   any existing .build-image so a development workflow cannot leave a stale
-#   image reference available for pushing.
-#
-# Notes:
 #   Patch files are validated and applied in shell glob order, which normally
 #   corresponds to lexical filename order. Prefix filenames numerically if
 #   patch application order matters.
+#
+#   Versioned tags use:
+#     ghcr.io/ges-automation/dex-heimges:
+#       YYYYMMDDHHMM-dex_<upstream-sha>-patch_<patch-commit-sha>
+#
+#   Development tags use:
+#     dex-heimges:YYYYMMDDHHMM-dex_<upstream-sha>-dev
+#
+# Dependencies:
+#   Git - Validates repository state, fetches Dex, and applies patches.
+#   Docker CLI - Builds and inspects the resulting container image.
+#   POSIX utilities - Uses awk, basename, cut, date, dirname, and mktemp.
+#   patches/*.patch - At least one applicable Dex patch is required.
+#
+# Usage:
+#   sh ./scripts/image.sh [--dev]
+#
+# Arguments:
+#   --dev     Build a local development image from the working tree.
+#   -h        Show command help and exit.
+#   --help    Show command help and exit.
 # =============================================================================
+
+set -eu
 
 # -----------------------------------------------------------------------------
 # Configuration

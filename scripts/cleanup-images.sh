@@ -1,24 +1,36 @@
 #!/bin/sh
-set -eu
-
+#
+# SPDX-FileCopyrightText: © 2026 GES Automation Technology, Inc.
+# SPDX-FileContributor: Andrew J. Moore
+# SPDX-License-Identifier: 0BSD
+#
 # =============================================================================
-# Script:       cleanup-images.sh
+# Script:       scripts/cleanup-images.sh
 # Author:       Andrew J. Moore
-# Date:         2026-09-18
-# Revision:     r2
+# Revised:      2026-09-21
+# Revision:     r3
+# Source:       https://github.com/ges-automation/dex-heimges
 #
-# Description:
+# Purpose:
 #   Removes all local dex-heimges container images produced by versioned and
-#   development builds. This does not remove containers, volumes, networks,
-#   or Docker/BuildKit build cache.
+#   development builds. It does not remove containers, volumes, networks, or
+#   Docker/BuildKit build cache.
 #
-# Image repositories removed:
-#   - ghcr.io/ges-automation/dex-heimges
-#   - dex-heimges
+# Comments:
+#   Removes images from ghcr.io/ges-automation/dex-heimges and dex-heimges.
 #
-# Prerequisites:
-#   - Docker Engine / Docker CLI
+# Dependencies:
+#   Docker CLI - Lists and removes the repository's local container images.
+#   POSIX utilities - Uses sort and xargs to normalize and remove image IDs.
+#
+# Usage:
+#   sh ./scripts/cleanup-images.sh
+#
+# Arguments:
+#   None.
 # =============================================================================
+
+set -eu
 
 VERSIONED_IMAGE_REPO="ghcr.io/ges-automation/dex-heimges"
 DEV_IMAGE_REPO="dex-heimges"

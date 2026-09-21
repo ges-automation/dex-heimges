@@ -1,50 +1,47 @@
 #!/bin/sh
-set -eu
-
+#
+# SPDX-FileCopyrightText: © 2026 GES Automation Technology, Inc.
+# SPDX-FileContributor: Andrew J. Moore
+# SPDX-License-Identifier: 0BSD
+#
 # =============================================================================
-# Script:       image-push.sh
+# Script:       scripts/image-push.sh
 # Author:       Andrew J. Moore
-# Date:         2026-09-18
-# Revision:     r5
+# Revised:      2026-09-21
+# Revision:     r6
+# Source:       https://github.com/ges-automation/dex-heimges
 #
-# Description:
+# Purpose:
 #   Pushes the most recently built dex-heimges container image to the
-#   GitHub Container Registry (GHCR).
+#   GitHub Container Registry (GHCR), then tags and pushes the same image as
+#   latest. The image is read from the .build-image file produced by a
+#   successful versioned build.
 #
-#   The image to push is read from .build-image, which is generated only
-#   by a successful versioned image build. Images outside the expected dex-heimges
-#   GHCR namespace are explicitly rejected.
+# Comments:
+#   Rejects images outside the expected dex-heimges GHCR namespace. Retrieves
+#   credentials from 1Password and uses a temporary Docker configuration so
+#   they are not persisted in ~/.docker/config.json. Reuses an active
+#   1Password CLI session or starts an interactive sign-in when needed.
 #
-#   After the versioned image is pushed successfully, the same image is also
-#   tagged and pushed as :latest so deployments can track the current version.
-#
-#   GHCR credentials are retrieved from 1Password using the 1Password CLI.
-#   Docker authentication is performed using a temporary DOCKER_CONFIG
-#   directory so GHCR credentials are not persisted in ~/.docker/config.json.
-#
-# Prerequisites:
-#   - Docker CLI installed
-#   - 1Password CLI (op) installed
-#   - Access to the referenced 1Password item
-#   - A successful versioned image build that created .build-image
+# Dependencies:
+#   Docker CLI - Authenticates, inspects, tags, and pushes container images.
+#   1Password CLI (op) - Reads the GHCR username and personal access token.
+#   POSIX utilities - Uses cat, dirname, mktemp, rm, and sed.
+#   .build-image - Must identify an existing successful versioned build.
 #
 # Environment:
-#   GHCR_PAT_OP_REF
-#       1Password item reference containing:
-#         username    - GitHub username
-#         credential  - GitHub PAT with GHCR write access
+#   GHCR_PAT_OP_REF - 1Password item reference containing username and
+#                     credential fields. When unset, the script prompts for it
+#                     and can save it to ~/.profile.
 #
-#       Example:
-#         op://<vault-id>/<item-id>
+# Usage:
+#   sh ./scripts/image-push.sh
 #
-#   If GHCR_PAT_OP_REF is not set, this script prompts for it and optionally
-#   stores it in ~/.profile for future runs.
-#
-# Authentication:
-#   If an active 1Password CLI session already exists, it is reused.
-#   Otherwise, this script performs an interactive `op signin` for the
-#   duration of this script only.
+# Arguments:
+#   None.
 # =============================================================================
+
+set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
